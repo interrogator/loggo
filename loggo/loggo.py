@@ -90,34 +90,38 @@ class Loggo:
             return False
         return True
 
-    def _decorate_all_methods(self, cls: type, just_errors: bool = False) -> type:
+    def _decorate_members(self, mod_or_class, just_errors=False) -> type:
         """
-        Decorate all viable methods in a class
+        Decorate an entire mod_or_class?!
         """
-        assert inspect.isclass(cls)
-        members = inspect.getmembers(cls)
+        members = inspect.getmembers(mod_or_class)
         members = [(k, v) for k, v in members if self._can_decorate(v, name=k)]
         for name, candidate in members:
-            deco = self.logme(candidate, just_errors=just_errors)
+            if name not in mod_or_class.__dict__:
+                continue
+            if inspect.ismodule(candidate) or inspect.isclass(candidate):
+                deco = self._decorate_members(candidate)
+            elif  inspect.ismethod(candidate) or inspect.isfunction(candidate):
+                deco = self.logme(candidate, just_errors=just_errors)
             # somehow, decorating classmethods as staticmethods is the only way
             # to make everything work properly. we should find out why, some day
-            if isinstance(cls.__dict__[name], (staticmethod, classmethod)):
+            if isinstance(mod_or_class.__dict__[name], (staticmethod, classmethod)):
                 # Make mypy ignore due to an open issue: https://github.com/python/mypy/issues/5530
                 deco = staticmethod(deco)  # type: ignore
             try:
-                setattr(cls, name, deco)
+                setattr(mod_or_class, name, deco)
             # AttributeError happens if we can't write, as with __dict__
-            except AttributeError:
+            except (AttributeError, TypeError):
                 pass
-        return cls
+        return mod_or_class
 
     def __call__(self, class_or_func: Union[Callable, type]) -> Union[Callable, type]:
         """
         Make Loggo itself a decorator of either a class or a method/function, so
         you can just use @Loggo on both classes and functions
         """
-        if inspect.isclass(class_or_func):
-            return self._decorate_all_methods(cast(type, class_or_func))
+        if inspect.ismodule or inspect.isclass(class_or_func):
+            return self._decorate_members(cast(type, class_or_func))
         if self._can_decorate(class_or_func):
             return self.logme(class_or_func)
         return class_or_func
